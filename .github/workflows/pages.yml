@@ -1,0 +1,65 @@
+name: Deploy Angular to GitHub Pages
+
+on:
+  push:
+    branches: [ "main" ]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Install deps
+        run: npm ci
+
+      - name: Build Angular (with base-href)
+        run: npm run build -- --configuration production --base-href "/angular-playground/"
+
+      # If Angular 17/18+, output is dist/<app-name>/browser
+      - name: Detect build dir
+        id: paths
+        run: |
+          APP_DIR=$(node -e "const a=require('./angular.json');const name=Object.keys(a.projects)[0];process.stdout.write(name)")
+          echo "app=$APP_DIR" >> $GITHUB_OUTPUT
+          if [ -d "dist/$APP_DIR/browser" ]; then
+            echo "out=dist/$APP_DIR/browser" >> $GITHUB_OUTPUT
+          else
+            echo "out=dist/$APP_DIR" >> $GITHUB_OUTPUT
+          fi
+
+      # SPA 404 fallback for GitHub Pages
+      - name: Add 404.html fallback
+        run: cp "${{ steps.paths.outputs.out }}/index.html" "${{ steps.paths.outputs.out }}/404.html"
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: ${{ steps.paths.outputs.out }}
+
+  deploy:
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    runs-on: ubuntu-latest
+    needs: build
+    steps:
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
